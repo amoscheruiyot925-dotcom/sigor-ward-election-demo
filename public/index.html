@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sigor Ward Voting System</title>
+<style>
+body { background:#87CEEB; font-family:Arial, sans-serif; color:#333; }
+h1 { background:#4682B4; color:#fff; text-align:center; padding:20px; margin:0; }
+.station { background:#fff; margin:15px auto; padding:15px; width:90%; border-radius:6px; opacity:0.4; }
+.station.unlocked { opacity:1; }
+.station.locked { opacity:0.25; }
+table { width:100%; border-collapse:collapse; }
+th,td { border:1px solid #ccc; padding:6px; text-align:center; }
+button { padding:5px 10px; }
+.confirmed { background:#c8e6c9; }
+.footer { background:#fff; width:90%; margin:20px auto; padding:10px; border-radius:6px; }
+</style>
+</head>
+<body>
+
+<h1>SIGOR WARD VOTING STATION POLLS</h1>
+<div id="stations"></div>
+
+<div class="footer">
+<strong>TOTAL VOTES</strong><br>
+A: <span id="total-A">0</span> |
+B: <span id="total-B">0</span> |
+C: <span id="total-C">0</span> |
+D: <span id="total-D">0</span> |
+Spoiled: <span id="total-S">0</span>
+</div>
+
+<script>
+const SYSTEM_PASSWORD = "SIGOR@2026";
+const API_BASE = "http://localhost:3000";
+
+if(prompt("Enter SYSTEM password:")!==SYSTEM_PASSWORD){
+    document.body.innerHTML="<h2 style='text-align:center'>ACCESS DENIED</h2>";
+    throw new Error("Denied");
+}
+
+const stations = {
+  'Cheptuonik':395,'Lelechonik':301,'Tumoi':614,'Kamorit':331,
+  'Sugurmerga1':373,'Sugurmerga2':372,'Sigor Nursery School':572,
+  'St Peter Koiyet Pry Sch':520,'Mismis':494,'Terta Nursery':252,
+  'Chebaraa':665,'Nyakichiwa':659,'Cheptolelyoi':372,'Tarakwet':217,
+  'Marangetit':426,'Areiyet':643,'Kipkeigei1':461,'Kipkeigei2':460,
+  'Lelaitich1':438,'Lelaitich2':438,'Kapsabul1':419,'Kapsabul2':419,
+  'Kisiet':347,'Mwokyot':429,'Ngwonet':387,'Chepkosa':513,
+  'Chemengwa':660,'Koitabkalyet':542,'Lugumek1':367,'Lugumek2':367,
+  'Kabolwo1':387,'Kabolwo2':386,'Kosia':431,'Sigor Nursery':596
+};
+
+const container = document.getElementById("stations");
+const totalsDisplay = {A:"total-A",B:"total-B",C:"total-C",D:"total-D",S:"total-S"};
+
+// Build stations
+Object.keys(stations).forEach(name=>{
+    const id = name.replace(/\s+/g,"_");
+    const div = document.createElement("div");
+    div.className="station";
+    div.id=id;
+
+    div.innerHTML=`
+    <strong>${name}</strong> (Max voters: ${stations[name]})<br><br>
+
+    Password:
+    <input type="password" id="pass-${id}">
+    <button onclick="unlock('${id}','${name}')">Unlock</button>
+
+    <table>
+    <tr><th>Candidate</th><th>Votes</th><th>Confirm</th></tr>
+    ${["A","B","C","D","S"].map(c=>`
+      <tr>
+        <td>${c}</td>
+        <td><input type="number" id="${id}-${c}" disabled></td>
+        <td><button id="btn-${id}-${c}" onclick="confirmCandidate('${id}','${name}','${c}')" disabled>Confirm</button></td>
+      </tr>`).join("")}
+    </table>
+
+    <br>
+    <button id="submit-${id}" onclick="finalSubmit('${id}','${name}')" disabled>FINAL SUBMIT</button>
+    `;
+    container.appendChild(div);
+});
+
+// Unlock station
+async function unlock(id,name){
+    const password = document.getElementById("pass-"+id).value;
+    const res = await fetch(`${API_BASE}/api/login`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name,password})
+    });
+    const data = await res.json();
+    if(res.ok){
+        ["A","B","C","D","S"].forEach(c=>{
+            document.getElementById(`${id}-${c}`).disabled=false;
+            document.getElementById(`btn-${id}-${c}`).disabled=false;
+        });
+    } else alert(data.error);
+}
+
+// Confirm candidate vote
+async function confirmCandidate(id,station,candidate){
+    const input = document.getElementById(`${id}-${candidate}`);
+    const count = parseInt(input.value)||0;
+    const res = await fetch(`${API_BASE}/api/confirm`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({station,candidate,count})
+    });
+    const data = await res.json();
+    if(res.ok){
+        input.disabled=true;
+        document.getElementById(`btn-${id}-${candidate}`).disabled=true;
+        input.parentElement.parentElement.classList.add("confirmed");
+        checkFinalReady(id);
+        fetchTotals();
+    } else alert(data.error);
+}
+
+// Enable final submit if all inputs confirmed
+function checkFinalReady(id){
+    const all = ["A","B","C","D","S"].every(c=>{
+        return document.getElementById(`${id}-${c}`).disabled;
+    });
+    if(all) document.getElementById(`submit-${id}`).disabled=false;
+}
+
+// Final submit
+async function finalSubmit(id,station){
+    const res = await fetch(`${API_BASE}/api/submit`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({station})
+    });
+    const data = await res.json();
+    if(res.ok){
+        alert("Station results submitted and locked!");
+        document.querySelectorAll(`#${id} input, #${id} button`).forEach(e=>e.disabled=true);
+        fetchTotals();
+    } else alert(data.error);
+}
+
+// Fetch totals
+async function fetchTotals(){
+    const res = await fetch(`${API_BASE}/api/totals`);
+    const totals = await res.json();
+    ["A","B","C","D","S"].forEach(c=>{
+        document.getElementById(totalsDisplay[c]).innerText=totals[c];
+    });
+}
+
+// Auto refresh totals
+setInterval(fetchTotals,3000);
+fetchTotals();
+</script>
+
+</body>
+</html>
